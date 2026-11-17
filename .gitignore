@@ -1,0 +1,25 @@
+# Gradle and Android Studio
+.gradle/
+build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+*.iml
+.idea/
+.navigation/
+
+# Outputs and signing material (never commit keys)
+*.apk
+*.aab
+*.ap_
+*.keystore
+*.jks
+keystore.properties
+
+# Native PDFium binaries are downloaded by the build, not committed
+third_party/pdfium/**/*.so
+
+# Local scratch documents
+scratch/
+*.local.pdf
