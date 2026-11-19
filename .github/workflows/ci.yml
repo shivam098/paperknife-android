@@ -44,3 +44,48 @@ jobs:
           name: paperknife-android-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+  # Pictures of the app on an emulator, with a PDF opened the way another app opens one, to review
+  # the screen.
+  screenshot:
+    name: Screenshot
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: paperknife-android-debug
+          path: apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Open a PDF on an emulator and take screenshots
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: |
+            adb install -r apk/app-debug.apk
+            adb shell am start -W -n io.github.shivam098.paperknife/paperknife.app.MainActivity
+            sleep 5
+            adb exec-out screencap -p > screenshot-start.png
+            adb push conformance/documents/90f66aab2200.pdf /data/local/tmp/sample.pdf
+            adb shell run-as io.github.shivam098.paperknife sh -c 'mkdir -p files && cp /data/local/tmp/sample.pdf files/sample.pdf'
+            adb shell am start -W -a android.intent.action.VIEW -t application/pdf -d file:///data/user/0/io.github.shivam098.paperknife/files/sample.pdf -n io.github.shivam098.paperknife/paperknife.app.MainActivity
+            sleep 8
+            adb exec-out screencap -p > screenshot-document.png
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: paperknife-android-screenshots
+          path: screenshot-*.png
+          if-no-files-found: error
