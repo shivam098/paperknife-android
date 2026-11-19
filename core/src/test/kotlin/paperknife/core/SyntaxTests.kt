@@ -69,10 +69,9 @@ class SyntaxTests {
         val reread = PdfFile.tryOpen(updated)!!
         val stream = assertIs<CosStream>(reread.getObject(content.number))
         assertEquals("BT /F1 24 Tf 72 700 Td (Updated) Tj ET", text(reread.decodeStream(stream)!!))
-
-        // PaperKnife for Windows reads the updated file's text runs with a DocumentSession, which the
-        // PDFium layer ports; PDFium's text extraction tells the same.
-        assertTrue(PdfiumText.pageText(updated, 0)!!.contains("Updated"))
+        DocumentSession.fromSnapshot(PdfSnapshot.fromBytes(updated)).use { session ->
+            assertTrue(session.getTextRuns(0).any { r -> r.text == "Updated" })
+        }
     }
 
     @Test

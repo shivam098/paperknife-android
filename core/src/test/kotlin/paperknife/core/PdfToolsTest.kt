@@ -34,5 +34,5 @@ class PdfToolsTest {
     }
 
     private fun pageTexts(snapshot: PdfSnapshot): List<String> =
-        PdfDocument.load(snapshot).use { document -> (0 until document.pageCount).map { document.getPage(it).getTextRuns()[0].text } }
+        DocumentSession.fromSnapshot(snapshot).use { session -> (0 until session.pageCount).map { session.getTextRuns(it)[0].text } }
 }

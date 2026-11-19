@@ -137,8 +137,11 @@ Windows doesn't have.
 
 ## Tests
 
-- `ConformanceTests` runs every case in `conformance/cases` as `conformance/README.md` describes.
+- `ConformanceTests` runs every case in `conformance/cases` as `conformance/README.md` describes,
+  observing the session as the Windows engine's `CorpusRecorder` does.
 - Unit tests port the Windows tests the corpus doesn't cover (file syntax, Type 1 fonts, PDF
-  tools), and `DotNetSupportTest` checks the helpers above against values computed with .NET.
+  tools, saving, undo restoring the very snapshots, and the memory viewing pages keeps), and
+  `DotNetSupportTest` and its siblings check the helpers above against values computed with .NET.
 - The tests find the repository through the `paperknife.root` system property and load PDFium
-  from `jna.library.path`; Gradle sets both (see `core/build.gradle.kts`).
+  from `jna.library.path`; Gradle sets both (see `core/build.gradle.kts`). Files they write go
+  in `core/build/test-folders`.

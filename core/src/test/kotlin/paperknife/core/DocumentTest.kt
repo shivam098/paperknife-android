@@ -6,7 +6,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** DocumentTests of PaperKnife for Windows that the corpus doesn't cover, on the document and page the session uses. */
+/** DocumentTests of PaperKnife for Windows that the corpus doesn't cover. */
 class DocumentTest {
     @Test
     fun loadRejectsDataThatIsNotPdf() {
@@ -19,8 +19,8 @@ class DocumentTest {
 
     @Test
     fun renderPageDrawsContentOnWhite() {
-        PdfDocument.load(CorpusDocuments.baseContent()).use { document ->
-            val bitmap = document.getPage(0).render(612, 792)
+        DocumentSession.fromSnapshot(CorpusDocuments.baseContent()).use { session ->
+            val bitmap = session.renderPage(0, 612, 792)
 
             val (r, g, b) = pixel(bitmap, 172, 792 - 550)
             assertTrue(r in 210..225, "red is $r")
@@ -32,14 +32,12 @@ class DocumentTest {
 
     @Test
     fun hitTestTextFindsTheRunUnderAPixel() {
-        PdfDocument.load(CorpusDocuments.baseContent()).use { document ->
-            val page = document.getPage(0)
-
-            val hit = page.hitTestText(612, 792, 100, 792 - 708)
+        DocumentSession.fromSnapshot(CorpusDocuments.baseContent()).use { session ->
+            val hit = session.hitTestText(0, 612, 792, 100, 792 - 708)
 
             assertEquals("Hello World", hit?.text)
-            assertTrue(page.mapToPixels(hit!!.bounds, 612, 792).contains(100, 792 - 708))
-            assertNull(page.hitTestText(612, 792, 500, 50))
+            assertTrue(session.mapToPixels(0, hit!!.bounds, 612, 792).contains(100, 792 - 708))
+            assertNull(session.hitTestText(0, 612, 792, 500, 50))
         }
     }
 
