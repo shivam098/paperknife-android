@@ -6,7 +6,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** DocumentTests of PaperKnife for Windows that the corpus doesn't cover, on the document and page the session uses. */
+/** DocumentTests of PaperKnife for Windows that the corpus doesn't cover. */
 class DocumentTest {
     @Test
     fun loadRejectsDataThatIsNotPdf() {
@@ -17,10 +17,25 @@ class DocumentTest {
         assertEquals(PdfErrorCode.InvalidFormat, error.errorCode)
     }
 
+    /**
+     * Not a test of PaperKnife for Windows: the app asks for a password when opening a session
+     * says one is needed, which PDFium reports through its last error (read differently on
+     * Windows than on Linux and Android).
+     */
+    @Test
+    fun aWrongPasswordIsReportedAsPasswordRequired() {
+        val encrypted = CorpusDocuments.noChangesNoCopying()
+
+        val error = assertFailsWith<PdfException> { DocumentSession.fromSnapshot(encrypted, "wrong") }
+
+        assertEquals(PdfErrorCode.PasswordRequired, error.errorCode)
+        DocumentSession.fromSnapshot(encrypted).use { session -> assertEquals(1, session.pageCount) }
+    }
+
     @Test
     fun renderPageDrawsContentOnWhite() {
-        PdfDocument.load(CorpusDocuments.baseContent()).use { document ->
-            val bitmap = document.getPage(0).render(612, 792)
+        DocumentSession.fromSnapshot(CorpusDocuments.baseContent()).use { session ->
+            val bitmap = session.renderPage(0, 612, 792)
 
             val (r, g, b) = pixel(bitmap, 172, 792 - 550)
             assertTrue(r in 210..225, "red is $r")
@@ -32,14 +47,12 @@ class DocumentTest {
 
     @Test
     fun hitTestTextFindsTheRunUnderAPixel() {
-        PdfDocument.load(CorpusDocuments.baseContent()).use { document ->
-            val page = document.getPage(0)
-
-            val hit = page.hitTestText(612, 792, 100, 792 - 708)
+        DocumentSession.fromSnapshot(CorpusDocuments.baseContent()).use { session ->
+            val hit = session.hitTestText(0, 612, 792, 100, 792 - 708)
 
             assertEquals("Hello World", hit?.text)
-            assertTrue(page.mapToPixels(hit!!.bounds, 612, 792).contains(100, 792 - 708))
-            assertNull(page.hitTestText(612, 792, 500, 50))
+            assertTrue(session.mapToPixels(0, hit!!.bounds, 612, 792).contains(100, 792 - 708))
+            assertNull(session.hitTestText(0, 612, 792, 500, 50))
         }
     }
 

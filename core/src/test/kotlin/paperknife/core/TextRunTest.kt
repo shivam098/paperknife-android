@@ -10,11 +10,9 @@ import kotlin.test.assertEquals
 class TextRunTest {
     @Test
     fun textRunsJoinCharactersDrawnOneByOneIntoLinesAndCells() {
-        PdfDocument.load(openInvoice()).use { document ->
-            val page = document.getPage(0)
-
-            val runs = page.getTextRuns()
-            val hit = page.hitTestText(612, 792, 80, 792 - 704)
+        DocumentSession.fromSnapshot(openInvoice()).use { session ->
+            val runs = session.getTextRuns(0)
+            val hit = session.hitTestText(0, 612, 792, 80, 792 - 704)
 
             assertEquals(listOf("Invoice 2024", "$1,250.00", "Total due"), runs.map { it.text })
             runs.forEach { assertEquals(it.text.length, it.objectCount) } // spaces are objects too
