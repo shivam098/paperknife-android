@@ -23,6 +23,8 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
         }
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
@@ -46,6 +48,10 @@ android {
         jniLibs.srcDir(rootProject.layout.buildDirectory.dir("pdfium/jniLibs"))
         assets.srcDir(generatedAssets)
     }
+
+    // The conformance corpus (cases/, documents/, contents/ and INDEX.md), which the instrumented
+    // test DeviceConformanceTest runs on the device; it reads them from the test APK's assets.
+    sourceSets["androidTest"].assets.srcDir(rootProject.layout.projectDirectory.dir("conformance"))
 }
 
 kotlin {
@@ -66,6 +72,11 @@ dependencies {
     implementation(libs.compose.material.icons.extended)
     implementation(libs.activity.compose)
     implementation(libs.lifecycle.viewmodel.compose)
+
+    // The conformance runner the engine's tests share (core's test fixtures), for DeviceConformanceTest.
+    androidTestImplementation(testFixtures(project(":core")))
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
 }
 
 // The fonts PaperKnife draws new letters with, the Adobe Glyph List, and the license texts,
