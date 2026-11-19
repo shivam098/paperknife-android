@@ -138,7 +138,12 @@ Windows doesn't have.
 ## Tests
 
 - `ConformanceTests` runs every case in `conformance/cases` as `conformance/README.md` describes,
-  observing the session as the Windows engine's `CorpusRecorder` does.
+  observing the session as the Windows engine's `CorpusRecorder` does. The runner and the rules
+  it compares by are `core/src/testFixtures` (`ConformanceRunner`), so that the app's
+  instrumented test `DeviceConformanceTest` runs the same cases the same way on Android, with
+  Android's PDFium, ART and JNA: the corpus is the test APK's assets, and CI runs it on an
+  emulator (`scripts/ci-device-corpus.sh`), which isn't Windows, so the README's rules for other
+  systems apply there.
 - Unit tests port the Windows tests the corpus doesn't cover (file syntax, Type 1 fonts, PDF
   tools, saving, undo restoring the very snapshots, and the memory viewing pages keeps), and
   `DotNetSupportTest` and its siblings check the helpers above against values computed with .NET.

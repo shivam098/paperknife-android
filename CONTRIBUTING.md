@@ -18,6 +18,7 @@ You need JDK 17 and the Android SDK (platform 35), for example from Android Stud
 ```bash
 ./gradlew :core:test          # the engine's tests, on this computer's JVM
 ./gradlew :app:assembleDebug  # the app, in app/build/outputs/apk/debug/
+./gradlew :app:connectedDebugAndroidTest  # the conformance corpus on a connected device or emulator
 ```
 
 The build downloads PDFium (checked against its SHA-256) for this computer, for the tests, and
