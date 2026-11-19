@@ -3,9 +3,10 @@
 **An offline, open-source PDF editor for Android.** Part of [PaperKnife](https://github.com/shivam098/paperknife-windows):
 your documents never leave your device — no uploads, no account, no telemetry.
 
-> **Status: planning.** No app code yet. Windows is the lead implementation; Android development
-> starts once the editing model and shared test corpus are proven there (Windows milestone M1).
-> See the [roadmap](docs/ROADMAP.md) and [architecture plan](docs/ARCHITECTURE.md).
+> **Status: in development.** The engine is being ported from PaperKnife for Windows to Kotlin
+> ([porting rules](docs/PORTING.md)) and checked against the shared [conformance corpus](conformance/README.md),
+> so every shortcoming fixed on Windows stays fixed here. See the [roadmap](docs/ROADMAP.md) and
+> [architecture](docs/ARCHITECTURE.md).
 
 ## Planned features
 
@@ -23,7 +24,7 @@ The same promises as every PaperKnife app ([product principles](https://github.c
 | Area | Choice |
 |---|---|
 | Language and UI | Kotlin, Jetpack Compose (Material 3) |
-| PDF engine | [PDFium](https://pdfium.googlesource.com/pdfium/) through a small JNI layer, using the [pdfium-binaries](https://github.com/bblanchon/pdfium-binaries) Android builds (arm64-v8a, armeabi-v7a, x86_64, x86) |
+| PDF engine | [PDFium](https://pdfium.googlesource.com/pdfium/) through [JNA](https://github.com/java-native-access/jna), using the [pdfium-binaries](https://github.com/bblanchon/pdfium-binaries) Android builds (arm64-v8a, armeabi-v7a, x86_64, x86) |
 | Files | Storage Access Framework, so no storage permission is needed |
 | Privacy | No `INTERNET` permission: Android itself prevents the app from going online |
 

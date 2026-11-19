@@ -8,15 +8,15 @@ This is a plan, not a description of existing code. It follows the design proven
 | Module | Responsibility |
 |---|---|
 | `:app` | Jetpack Compose UI, navigation, file pickers. |
-| `:core` | Pure Kotlin: snapshots, the document session, verification rules, undo history. Testable on the JVM. |
-| `:pdfium` | JNI bindings (C++, NDK, CMake) and the prebuilt `libpdfium.so` for each ABI. |
+| `:core` | The engine, ported from PaperKnife for Windows: snapshots, the document session, verification rules, undo history. A plain JVM library that calls PDFium through JNA, so its tests run on the JVM. |
 
 ## PDF engine
 
 - **PDFium** from [pdfium-binaries](https://github.com/bblanchon/pdfium-binaries)
   (`pdfium-android-{arm64,arm,x64,x86}`), the build without V8, so JavaScript in PDFs never runs.
-- A thin C++ JNI layer exposes the same subset of the PDFium API that Windows uses. Pixels are
-  written straight into Android `Bitmap`s with `AndroidBitmap_lockPixels`.
+- The engine calls the same subset of PDFium's C API that Windows uses through JNA, so no native
+  code of PaperKnife's own is needed: the app ships `libpdfium.so` for each ABI and JNA's
+  `libjnidispatch.so`.
 - PDFium isn't thread-safe, so all engine calls run on one dedicated thread, exposed to Kotlin as
   suspend functions.
 

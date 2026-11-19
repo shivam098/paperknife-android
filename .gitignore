@@ -1,4 +1,5 @@
-# Gradle and Android Studio
+# Gradle, Kotlin and Android Studio
+.kotlin/
 .gradle/
 build/
 local.properties

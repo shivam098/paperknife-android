@@ -1,3 +1,10 @@
 * text=auto
 *.pdf binary
 *.png binary
+*.pfb binary
+*.ttf binary
+*.jar binary
+*.content -text diff
+gradlew text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
