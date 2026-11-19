@@ -14,7 +14,8 @@ import kotlin.test.fail
  * field and in order. The session's other observations (undo state, blockers, content, fonts)
  * and the steps need the layers above. Values are taken as CorpusRecorder in PaperKnife for
  * Windows takes them: `GetPageSize` is the page's width and height, and `GetTextRuns` the page's
- * runs; sizes and bounds are rounded to 0.01, half away from zero, and compared within 0.011.
+ * runs; sizes and bounds are rounded to 0.01, half away from zero, and compared within 0.011,
+ * except, off Windows, the bounds of runs whose font isn't embedded ([boundsTolerance]).
  */
 class PdfiumCorpusTest {
     @TestFactory
@@ -79,14 +80,27 @@ class PdfiumCorpusTest {
         val bounds = expected.list("bounds").map { (it as Double) }
         val actual = listOf(run.bounds.left, run.bounds.bottom, run.bounds.right, run.bounds.top)
         val names = listOf("left", "bottom", "right", "top")
+        val tolerance = boundsTolerance(expected) ?: return
         for (i in 0 until 4) {
-            compareNumber(problems, "$where bounds ${names[i]}", bounds[i], actual[i])
+            compareNumber(problems, "$where bounds ${names[i]}", bounds[i], actual[i], tolerance)
         }
     }
 
-    private fun compareNumber(problems: MutableList<String>, what: String, expected: Double, actual: Float) {
+    /**
+     * How far a run's bounds may be from the corpus's, or null when they can't be compared. The
+     * bounds of a run whose font isn't embedded follow the font PDFium finds on the computer, and
+     * the corpus was recorded on Windows, so elsewhere those of the standard 14 fonts may differ
+     * by a tenth of the size and those of other fonts aren't compared (the corpus README).
+     */
+    private fun boundsTolerance(expected: Map<String, Any?>): Double? = when {
+        IS_WINDOWS || expected["embedded"] == true -> TOLERANCE
+        expected.str("font") in STANDARD_FONTS -> expected.num("size") / 10
+        else -> null
+    }
+
+    private fun compareNumber(problems: MutableList<String>, what: String, expected: Double, actual: Float, tolerance: Double = TOLERANCE) {
         val rounded = DotNetMath.round(actual.toDouble(), 2, awayFromZero = true)
-        if (!(abs(rounded - expected) <= TOLERANCE)) {
+        if (!(abs(rounded - expected) <= tolerance)) {
             problems.add("$what is $rounded ($actual), not $expected")
         }
     }
@@ -252,5 +266,11 @@ class PdfiumCorpusTest {
 
     private companion object {
         const val TOLERANCE = 0.011
+        val IS_WINDOWS = System.getProperty("os.name").startsWith("Windows")
+        val STANDARD_FONTS = setOf(
+            "Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique",
+            "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
+            "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic", "Symbol", "ZapfDingbats",
+        )
     }
 }
