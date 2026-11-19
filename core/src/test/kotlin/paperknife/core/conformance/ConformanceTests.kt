@@ -62,6 +62,27 @@ class ConformanceTests {
     }
 
     /**
+     * Not a test of PaperKnife for Windows: off Windows, the runner says how far the bounds of a run
+     * in a standard font that isn't embedded are from the corpus's, when they differ but by less
+     * than a tenth of the run's size.
+     */
+    @Test
+    fun offWindowsBoundsWithinTheirToleranceAreLogged() {
+        TestFiles.useBundledFonts()
+        val stored = File(folder, "cases/edit-basic-undo-redo.json").readText(Charsets.UTF_8)
+        val changed = stored.replaceFirst("\"bounds\": [73.92, 699.74, 194.28, 717.18]", "\"bounds\": [74.92, 699.74, 194.28, 717.18]")
+        assertNotEquals(stored, changed)
+        val logged = ArrayList<String>()
+        val offWindows = ConformanceRunner(CorpusFiles.fromDirectory(folder), onWindows = false, log = { text -> logged.add(text) })
+
+        check(offWindows.runJson(changed))
+
+        val line = logged.single { text -> text.startsWith("edit-basic-undo-redo: $.initial.pages[0].runs[0].bounds is [") }
+        assertTrue(line.contains("], not the corpus's [74.92, 699.74, 194.28, 717.18]: up to "), line)
+        assertTrue(line.endsWith(" off, within the 2.4 allowed off Windows, as “Helvetica” isn't embedded."), line)
+    }
+
+    /**
      * Not a test of PaperKnife for Windows: content that may differ off Windows must still have the
      * corpus's tokens, numbers within 0.0001. The content is runs-layout-as-saved-pdfium-rewrite's
      * after its step, which places the third “A” at 96.012.

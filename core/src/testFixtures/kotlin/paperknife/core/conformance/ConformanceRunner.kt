@@ -290,7 +290,10 @@ class ConformanceRunner(
             }
         }
 
-        /** Compares a run's bounds within [boundsTolerance], and logs those it doesn't compare. */
+        /**
+         * Compares a run's bounds within [boundsTolerance], and logs those it doesn't compare and
+         * those that differ by more than [TOLERANCE] but within the tolerance off Windows.
+         */
         private fun compareBounds(expectedRun: Map<*, *>, actualRun: Map<*, *>, path: String, label: String) {
             val expected = expectedRun["bounds"]
             val actual = actualRun["bounds"]
@@ -305,10 +308,24 @@ class ConformanceRunner(
                 return
             }
 
+            var largest = 0.0
+            var within = true
             for (i in expected.indices) {
-                if (!(abs((expected[i] as Number).toDouble() - (actual[i] as Number).toDouble()) <= tolerance)) {
+                val difference = abs((expected[i] as Number).toDouble() - (actual[i] as Number).toDouble())
+                if (!(difference <= tolerance)) {
                     problem(label, "$path[$i] is ${show(actual[i])}, not ${show(expected[i])}")
+                    within = false
                 }
+
+                largest = maxOf(largest, difference)
+            }
+
+            if (within && largest > TOLERANCE) {
+                log(
+                    "$id: $path is ${show(actual)}, not the corpus's ${show(expected)}: up to " +
+                        "${show(DotNetMath.round(largest, 2, awayFromZero = true))} off, within the ${show(tolerance)} " +
+                        "allowed off Windows, as “${expectedRun["font"]}” isn't embedded.",
+                )
             }
         }
 
