@@ -10,8 +10,9 @@ import kotlin.math.abs
 import kotlin.math.max
 
 /**
- * .NET's ZLibException, which its zlib streams throw for errors other than damaged data (such as
- * data that needs a preset dictionary). Like it, this is an IOException, which no caller catches.
+ * .NET's ZLibException, which its zlib streams throw for errors other than damaged data, such as
+ * data that asks for a preset dictionary, which a PDF can't give. Like it, this is an IOException,
+ * and inflating treats it as damaged data, as PaperKnife for Windows does.
  */
 internal class ZLibException(message: String) : IOException(message)
 
@@ -104,6 +105,9 @@ internal object StreamFilters {
             return if (read == length) output else output.copyOf(read)
         } catch (e: DataFormatException) {
             return null
+        } catch (e: IOException) {
+            // Data that asks for a preset dictionary (see ZLibException).
+            return null
         } finally {
             z.close()
         }
@@ -129,6 +133,9 @@ internal object StreamFilters {
 
             return output.toByteArray()
         } catch (e: DataFormatException) {
+            return null
+        } catch (e: IOException) {
+            // Data that asks for a preset dictionary (see ZLibException).
             return null
         } finally {
             z.close()

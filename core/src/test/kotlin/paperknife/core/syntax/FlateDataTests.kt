@@ -3,7 +3,6 @@ package paperknife.core.syntax
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -50,11 +49,13 @@ class FlateDataTests {
     }
 
     @Test
-    fun dataThatNeedsAPresetDictionaryThrows() {
-        // The FDICT flag, then a dictionary's checksum: .NET throws a ZLibException, which nothing catches.
+    fun dataThatNeedsAPresetDictionaryIsDamaged() {
+        // The FDICT flag, then a dictionary's checksum: .NET throws a ZLibException, which
+        // PaperKnife for Windows treats as damaged data, as it treats data zlib can't read.
         val withDictionary = byteArrayOf(0x78, 0xBB.toByte(), 0, 0, 0, 1) + deflated.copyOfRange(2, deflated.size)
 
-        assertFailsWith<ZLibException> { inflate(withDictionary) }
+        assertNull(inflate(withDictionary))
+        assertNull(StreamFilters.inflatePrefix(withDictionary, 0, withDictionary.size, 10))
     }
 
     private fun inflate(data: ByteArray): ByteArray? = StreamFilters.decode(data, 0, data.size, listOf("FlateDecode"), emptyList(), null)
