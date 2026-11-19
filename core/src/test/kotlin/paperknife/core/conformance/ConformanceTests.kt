@@ -62,13 +62,18 @@ class ConformanceTests {
 
         val error = assertFailsWith<AssertionError> { CaseRun(changed).check() }
 
-        val message = error.message!!
-        assertContains(message, "\ninitial.canRedo is false, not true\n")
-        assertContains(message, "\ninitial.pages[0].runs[0].bounds[0] is 73.92, not 83.92\n")
-        assertContains(message, "\nstep 1 (replaceText “Hello World” with “Hello PaperKnife” on page 1): result.message is " +
-            "“Text updated. Verified: nothing else on this page changed.”, not “Text updated.”\n")
-        assertContains(message, "\nstep 2 (action “undo”): state.sameAs is 0, not null")
-        assertEquals(5, message.lines().size, message)
+        // The bounds of Helvetica, which isn't embedded, follow the font PDFium finds on the computer.
+        val lines = error.message!!.lines()
+        assertEquals("edit-basic-undo-redo:", lines[0])
+        assertEquals("$.initial.canRedo is false, not true", lines[1])
+        assertTrue(lines[2].startsWith("$.initial.pages[0].runs[0].bounds[0] is 73.") && lines[2].endsWith(", not 83.92"), lines[2])
+        assertEquals(
+            "step 1 (replaceText “Hello World” with “Hello PaperKnife” on page 1): $.steps[0].expect.result.message is " +
+                "“Text updated. Verified: nothing else on this page changed.”, not “Text updated.”",
+            lines[3],
+        )
+        assertEquals("step 2 (undo): $.steps[1].expect.state.sameAs is 0, not null", lines[4])
+        assertEquals(5, lines.size, error.message)
     }
 
     private fun caseFiles(): List<File> =
@@ -96,7 +101,7 @@ class ConformanceTests {
             val document = load(stored["document"] as String)
             DocumentSession.fromSnapshot(document, stored["password"] as String?).use { session ->
                 history.add(document.span)
-                compare(stored["initial"], state(session, 0), "initial")
+                compare(stored["initial"], state(session, 0), "$.initial", "")
                 for ((i, item) in (stored["steps"] as List<*>).withIndex()) {
                     val step = item as Map<*, *>
                     val where = "step ${i + 1} (${describe(step)})"
@@ -115,8 +120,8 @@ class ConformanceTests {
                     }
 
                     val expect = step["expect"] as Map<*, *>
-                    compare(expect["result"], result, "$where: result")
-                    compare(expect["state"], state(session, i + 1), "$where: state")
+                    compare(expect["result"], result, "$.steps[$i].expect.result", where)
+                    compare(expect["state"], state(session, i + 1), "$.steps[$i].expect.state", where)
                 }
             }
 
@@ -222,62 +227,78 @@ class ConformanceTests {
         /**
          * Adds where an observation differs from the corpus's (ConformanceTests.Difference): objects
          * have the same keys, arrays the same items, numbers may differ by [TOLERANCE], and
-         * everything else must be equal. A run's bounds are compared by [compareBounds].
+         * everything else must be equal. A run's bounds are compared by [compareBounds], and
+         * [PLATFORM_FONT_VALUES] are compared only on Windows.
+         *
+         * @param path Where the value is in the case, as in PaperKnife for Windows' messages ("$.initial.pageCount").
+         * @param label The step the value is observed after, for messages; empty for the initial state.
          */
-        private fun compare(expected: Any?, actual: Any?, path: String) {
+        private fun compare(expected: Any?, actual: Any?, path: String, label: String) {
+            val excluded = if (IS_WINDOWS) null else PLATFORM_FONT_VALUES[id]?.get(path)
+            if (excluded != null) {
+                println("$id: $path is ${show(actual)}, not compared with the corpus's ${show(expected)} off Windows: $excluded")
+                return
+            }
+
             when {
                 expected == null && actual == null -> {}
                 expected is Map<*, *> && actual is Map<*, *> -> {
                     for (key in expected.keys + actual.keys) {
                         if (!expected.containsKey(key) || !actual.containsKey(key)) {
-                            problems.add("$path.$key is ${if (expected.containsKey(key)) "missing" else "unexpected"}")
+                            problem(label, "$path.$key is ${if (expected.containsKey(key)) "missing" else "unexpected"}")
                         } else if (key == "bounds") {
-                            compareBounds(expected, actual, "$path.bounds")
+                            compareBounds(expected, actual, "$path.bounds", label)
                         } else {
-                            compare(expected[key], actual[key], "$path.$key")
-                            if (key == "content" && expected[key] != actual[key]) {
-                                contentDifference(expected[key], actual[key])?.let { detail -> problems.add("  $detail") }
-                            }
+                            compare(expected[key], actual[key], "$path.$key", label)
                         }
                     }
                 }
                 expected is List<*> && actual is List<*> -> {
                     if (expected.size != actual.size) {
-                        problems.add("$path has ${actual.size} items, not ${expected.size}: ${show(actual)} instead of ${show(expected)}")
+                        problem(label, "$path has ${actual.size} items, not ${expected.size}: ${show(actual)} instead of ${show(expected)}")
                         return
                     }
 
                     for (i in expected.indices) {
-                        compare(expected[i], actual[i], "$path[$i]")
+                        compare(expected[i], actual[i], "$path[$i]", label)
                     }
                 }
                 expected is Number && actual is Number -> if (!(abs(expected.toDouble() - actual.toDouble()) <= TOLERANCE)) {
-                    problems.add("$path is ${show(actual)}, not ${show(expected)}")
+                    problem(label, "$path is ${show(actual)}, not ${show(expected)}")
                 }
-                expected != actual -> problems.add("$path is ${show(actual)}, not ${show(expected)}")
+                expected != actual -> {
+                    problem(label, "$path is ${show(actual)}, not ${show(expected)}")
+                    if (path.endsWith(".content")) {
+                        contentDifference(expected, actual)?.let { detail -> problems.add("  $detail") }
+                    }
+                }
             }
         }
 
         /** Compares a run's bounds within [boundsTolerance], and prints those it doesn't compare. */
-        private fun compareBounds(expectedRun: Map<*, *>, actualRun: Map<*, *>, path: String) {
+        private fun compareBounds(expectedRun: Map<*, *>, actualRun: Map<*, *>, path: String, label: String) {
             val expected = expectedRun["bounds"]
             val actual = actualRun["bounds"]
             val tolerance = boundsTolerance(expectedRun)
             if (tolerance == null) {
-                println("$id: $path is ${show(actual)}, not compared with the corpus's ${show(expected)}: “${expectedRun["font"]}” isn't embedded.")
+                println("$id: $path is ${show(actual)}, not compared with the corpus's ${show(expected)} off Windows: “${expectedRun["font"]}” isn't embedded.")
                 return
             }
 
             if (expected !is List<*> || actual !is List<*> || expected.size != actual.size || (expected + actual).any { value -> value !is Number }) {
-                compare(expected, actual, path)
+                compare(expected, actual, path, label)
                 return
             }
 
             for (i in expected.indices) {
                 if (!(abs((expected[i] as Number).toDouble() - (actual[i] as Number).toDouble()) <= tolerance)) {
-                    problems.add("$path[$i] is ${show(actual[i])}, not ${show(expected[i])}")
+                    problem(label, "$path[$i] is ${show(actual[i])}, not ${show(expected[i])}")
                 }
             }
+        }
+
+        private fun problem(label: String, text: String) {
+            problems.add(if (label.isEmpty()) text else "$label: $text")
         }
 
         /** Where decoded content first differs from what the corpus keeps in contents/, when it keeps it. */
@@ -300,7 +321,12 @@ class ConformanceTests {
         private fun describe(step: Map<*, *>): String = when (step["action"]) {
             "replaceText" -> "replaceText “${step["run"]}” with “${step["text"]}” on page ${int(step, "page") + 1}" +
                 if (step["contentEditing"] == false) ", without content editing" else ""
-            else -> step.filterKeys { key -> key != "expect" }.entries.joinToString(", ") { (key, value) -> "$key ${show(value)}" }
+            "replaceObject" -> "replaceObject ${int(step, "object")} with “${step["text"]}” on page ${int(step, "page") + 1}"
+            "rotatePage" -> "rotatePage ${int(step, "page") + 1} by ${int(step, "quarterTurns")} quarter turns"
+            "deletePage" -> "deletePage ${int(step, "page") + 1}"
+            "movePage" -> "movePage ${int(step, "from") + 1} to ${int(step, "to") + 1}"
+            "appendDocument" -> "appendDocument ${step["document"]}"
+            else -> step["action"].toString()
         }
 
         private fun int(step: Map<*, *>, key: String): Int = (step[key] as Double).toInt()
@@ -337,6 +363,23 @@ class ConformanceTests {
             STANDARD_FONTS.contains(run["font"] as String) -> (run["size"] as Double) / 10
             else -> null
         }
+
+        /**
+         * Other values that follow the fonts PDFium finds on the computer, which aren't compared off
+         * Windows, by case and path, with why. Where PDFium's page rewrite moves the rest of a line
+         * to fit an edit, the old text's end is measured from PDFium's character boxes (see
+         * `TextLayout.measureLastAdvance`), which take the substitute font's glyph shapes for a font
+         * that isn't embedded. So the moved text's position can differ in its last digits.
+         */
+        val PLATFORM_FONT_VALUES: Map<String, Map<String, String>> = mapOf(
+            // On Ubuntu 24.04 the third "A" lands at x = 96.01201 rather than 96.012, which changes
+            // the content PDFium writes; the same edit in the content stream (runs-layout-as-saved-
+            // content-stream), which measures the old text by its advance widths, matches.
+            "runs-layout-as-saved-pdfium-rewrite" to mapOf(
+                "$.steps[0].expect.state.pages[0].content" to
+                    "PDFium's rewrite placed the moved text by the end of “A” in the font it draws Helvetica with",
+            ),
+        )
 
         /** A run as the corpus stores it (CorpusRecorder.Run). */
         fun json(run: PdfTextRun): Map<String, Any?> = mapOf(
