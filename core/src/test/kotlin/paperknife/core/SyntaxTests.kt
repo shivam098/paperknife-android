@@ -17,12 +17,18 @@ import paperknife.core.syntax.PdfObjectParser
 import paperknife.core.syntax.StreamFilters
 import paperknife.core.syntax.StreamUpdate
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.Callable
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.fail
 
 /** PaperKnife's own reading and writing of PDF syntax, used for content edits. */
 class SyntaxTests {
@@ -55,6 +61,19 @@ class SyntaxTests {
         val ops = ContentParser.parse(latin1(RawPdf.INLINE_IMAGE + RawPdf.KERNED_TEXT))!!
 
         assertEquals(listOf("q", "cm", "BI", "Q", "BT", "Tf", "Td", "TJ", "ET"), ops.map { o -> o.operator })
+    }
+
+    @Test
+    fun contentParserSkipsInlineImageDataWhoseSizeOverflows() {
+        // 536870910 gray bytes a row overflow 32 bits; wrapped, the size of 42 rows pointed back at
+        // the first EI, so reading went back to it and read the image again, forever.
+        val content = latin1("EI BI /W 536870910 /H 42 /CS /G /BPC 8 ID x EI")
+
+        val ops = withTimeout(10) { ContentParser.parse(content) }
+
+        assertNotNull(ops)
+        assertEquals(listOf("EI", "BI"), ops.map { o -> o.operator })
+        assertEquals(content.size, ops[1].end)
     }
 
     @Test
@@ -142,6 +161,23 @@ class SyntaxTests {
     }
 
     private fun number(value: Int): CosNumber = CosNumber(value.toDouble(), value.toString())
+
+    /**
+     * What [action] gives, run on a thread of its own; fails when it takes more than [seconds].
+     * The thread is a daemon: should the action loop forever, it can't keep the tests from ending.
+     */
+    private fun <T> withTimeout(seconds: Long, action: () -> T): T {
+        val executor = Executors.newSingleThreadExecutor { task -> Thread(task, "timed test").apply { isDaemon = true } }
+        try {
+            return executor.submit(Callable { action() }).get(seconds, TimeUnit.SECONDS)
+        } catch (_: TimeoutException) {
+            fail("It took more than $seconds s.")
+        } catch (e: ExecutionException) {
+            throw e.cause ?: e
+        } finally {
+            executor.shutdownNow()
+        }
+    }
 
     private fun latin1(text: String): ByteArray = text.toByteArray(Charsets.ISO_8859_1)
 
