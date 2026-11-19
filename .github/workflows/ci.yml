@@ -84,6 +84,7 @@ jobs:
             adb shell am start -W -a android.intent.action.VIEW -t application/pdf -d file:///data/user/0/io.github.shivam098.paperknife/files/sample.pdf -n io.github.shivam098.paperknife/paperknife.app.MainActivity
             sleep 8
             adb exec-out screencap -p > screenshot-document.png
+            bash scripts/ci-tap-page.sh 0.2191 0.1365 "Hello World" screenshot-selected.png
 
       - uses: actions/upload-artifact@v7
         if: always()
