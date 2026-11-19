@@ -78,13 +78,14 @@ jobs:
             adb shell am start -W -n io.github.shivam098.paperknife/paperknife.app.MainActivity
             sleep 5
             adb exec-out screencap -p > screenshot-start.png
-            adb push conformance/documents/90f66aab2200.pdf /data/local/tmp/sample.pdf
-            adb shell run-as io.github.shivam098.paperknife sh -c 'mkdir -p files && cp /data/local/tmp/sample.pdf files/sample.pdf'
+            adb shell run-as io.github.shivam098.paperknife mkdir -p files
+            adb exec-in "run-as io.github.shivam098.paperknife sh -c 'cat > files/sample.pdf'" < conformance/documents/90f66aab2200.pdf
             adb shell am start -W -a android.intent.action.VIEW -t application/pdf -d file:///data/user/0/io.github.shivam098.paperknife/files/sample.pdf -n io.github.shivam098.paperknife/paperknife.app.MainActivity
             sleep 8
             adb exec-out screencap -p > screenshot-document.png
 
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
           name: paperknife-android-screenshots
           path: screenshot-*.png
