@@ -11,13 +11,17 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -101,9 +105,12 @@ import kotlin.math.max
 /** The width from which the screen shows pages, page and edit pane side by side, as on Windows. */
 private val wideLayout = 840.dp
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun PaperKnifeScreen(model: EditorViewModel) {
+    // While the keyboard is open, the screen leaves out tips, explanations and page navigation, so
+    // that the page stays in view above the keyboard.
+    val typing = WindowInsets.isImeVisible
     Scaffold(
         topBar = { TopBar(model) },
         bottomBar = { StatusBar(model) },
@@ -111,10 +118,11 @@ fun PaperKnifeScreen(model: EditorViewModel) {
         Column(
             Modifier
                 .padding(padding)
+                .consumeWindowInsets(padding)
                 .fillMaxSize()
                 .imePadding(),
         ) {
-            model.banner?.let { banner ->
+            model.banner?.takeUnless { typing && it.severity == Severity.Informational }?.let { banner ->
                 Notice(
                     banner.severity, banner.title, banner.message,
                     onClose = { model.banner = null },
@@ -123,7 +131,7 @@ fun PaperKnifeScreen(model: EditorViewModel) {
             }
 
             if (model.isOpen) {
-                Workspace(model)
+                Workspace(model, typing)
             } else {
                 EmptyState(model)
             }
@@ -207,7 +215,7 @@ private fun EmptyState(model: EditorViewModel) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Workspace(model: EditorViewModel) {
+private fun Workspace(model: EditorViewModel, typing: Boolean) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth >= wideLayout) {
             Row(Modifier.fillMaxSize()) {
@@ -232,7 +240,9 @@ private fun Workspace(model: EditorViewModel) {
         } else {
             var showRuns by remember { mutableStateOf(false) }
             Column(Modifier.fillMaxSize()) {
-                PageNavigator(model, onShowRuns = { showRuns = true })
+                if (!typing) {
+                    PageNavigator(model, onShowRuns = { showRuns = true })
+                }
                 PageBlockers(model, Modifier.padding(horizontal = 12.dp))
                 PageView(model, Modifier.weight(1f).fillMaxWidth())
                 HorizontalDivider()
@@ -244,7 +254,7 @@ private fun Workspace(model: EditorViewModel) {
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    EditControls(model)
+                    EditControls(model, compact = typing)
                 }
             }
 
@@ -321,11 +331,23 @@ private fun PageView(model: EditorViewModel, modifier: Modifier) {
         val bitmap = shown.bitmap
         val image = remember(bitmap) { bitmap.bitmap.asImageBitmap() }
         val accent = MaterialTheme.colorScheme.primary
+        val vertical = rememberScrollState()
+        val horizontal = rememberScrollState()
+        val visibleWidth = constraints.maxWidth
+        val visibleHeight = constraints.maxHeight
+        val marginPx = with(density) { margin.roundToPx() }
+        // Keep the selected text in view, also when the keyboard makes the page's space smaller.
+        LaunchedEffect(model.selectionBox, visibleWidth, visibleHeight) {
+            val box = model.selectionBox ?: return@LaunchedEffect
+            vertical.animateScrollTo(reveal(vertical.value, marginPx + box.y, box.height, visibleHeight, marginPx))
+            horizontal.animateScrollTo(reveal(horizontal.value, marginPx + box.x, box.width, visibleWidth, marginPx))
+        }
+
         Box(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .horizontalScroll(rememberScrollState()),
+                .verticalScroll(vertical)
+                .horizontalScroll(horizontal),
         ) {
             Box(Modifier.widthIn(min = available), contentAlignment = Alignment.TopCenter) {
                 Box(
@@ -357,8 +379,19 @@ private fun PageView(model: EditorViewModel, modifier: Modifier) {
     }
 }
 
+/**
+ * The scroll position, moved as little as possible from [current], that shows the span of [length]
+ * pixels from [start], with [pad] around it, in [size] pixels; the span's start when it doesn't fit.
+ */
+private fun reveal(current: Int, start: Int, length: Int, size: Int, pad: Int): Int = when {
+    length + 2 * pad > size || start - pad < current -> start - pad
+    start + length + pad > current + size -> start + length + pad - size
+    else -> current
+}
+
+/** The selected text's editor; [compact] leaves out the explanations, for while the keyboard is open. */
 @Composable
-private fun EditControls(model: EditorViewModel) {
+private fun EditControls(model: EditorViewModel, compact: Boolean = false) {
     val focus = remember { FocusRequester() }
     var field by remember { mutableStateOf(TextFieldValue(model.editText)) }
     val value = if (field.text == model.editText) field else TextFieldValue(model.editText, TextRange(model.editText.length))
@@ -371,7 +404,9 @@ private fun EditControls(model: EditorViewModel) {
         }
     }
 
-    Text(model.editHint, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (!compact) {
+        Text(model.editHint, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
     OutlinedTextField(
         value = value,
         onValueChange = {
@@ -403,11 +438,13 @@ private fun EditControls(model: EditorViewModel) {
         }
     }
 
-    Text(
-        "PaperKnife changes only the selected text. After every edit it re-reads the saved result and compares the whole page; if anything else would change, the edit is cancelled.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    if (!compact) {
+        Text(
+            "PaperKnife changes only the selected text. After every edit it re-reads the saved result and compares the whole page; if anything else would change, the edit is cancelled.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 @Composable
