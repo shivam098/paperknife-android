@@ -39,6 +39,11 @@ internal object TextSupport {
             return TextSupportResult("This text has no usable font, so it can't be edited.", emptyList())
         }
 
+        val invalid = notValidUnicode(text)
+        if (invalid.isNotEmpty()) {
+            return TextSupportResult("This text has characters that aren't valid Unicode: ${invalid.joinToString(", ")}", invalid)
+        }
+
         val layout = distinct(text, ::isLayoutCharacter)
         if (layout.isNotEmpty()) {
             return TextSupportResult("Line breaks and tabs can't be added to a single line of text yet.", layout)
@@ -80,6 +85,33 @@ internal object TextSupport {
     private fun isLayoutCharacter(c: Char): Boolean =
         DotNetChar.isControl(c)
             || DotNetChar.category(c).let { it == DotNetUnicodeCategory.LineSeparator || it == DotNetUnicodeCategory.ParagraphSeparator }
+
+    /**
+     * U+FFFE and unpaired surrogates, named like "U+FFFE": pasted text can hold them, but no font
+     * draws them and .NET can't normalize them.
+     */
+    private fun notValidUnicode(text: String): List<String> {
+        val found = ArrayList<String>()
+        var i = 0
+        while (i < text.length) {
+            if (isSurrogatePair(text, i)) {
+                i++
+            } else if (text[i] == '\uFFFE' || text[i].isSurrogate()) {
+                val name = String.format(Locale.ROOT, "U+%04X", text[i].code)
+                if (!found.contains(name)) {
+                    found.add(name)
+                }
+            }
+
+            i++
+        }
+
+        return found
+    }
+
+    /** C#'s `char.IsSurrogatePair(text, index)`. */
+    private fun isSurrogatePair(text: String, index: Int): Boolean =
+        index + 1 < text.length && text[index].isHighSurrogate() && text[index + 1].isLowSurrogate()
 
     private fun needsShaping(c: Char): Boolean {
         val category = DotNetChar.category(c)

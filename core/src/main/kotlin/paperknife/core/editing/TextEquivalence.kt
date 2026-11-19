@@ -24,15 +24,24 @@ internal object TextEquivalence {
     fun areEquivalentIgnoringSpacing(a: String, b: String): Boolean =
         collapseSpaces(normalize(a)) == collapseSpaces(normalize(b))
 
-    /** Throws `IllegalArgumentException` for text .NET can't normalize, as C# does (see [DotNetNormalization]). */
     fun normalize(text: String): String {
-        val normalized = DotNetNormalization.formC(text)
+        val normalized = tryNormalize(text) ?: text
         val chars = CharArray(normalized.length)
         for (i in normalized.indices) {
             chars[i] = if (DotNetChar.category(normalized[i]) == DotNetUnicodeCategory.SpaceSeparator) ' ' else normalized[i]
         }
 
         return String(chars)
+    }
+
+    /**
+     * The text in NFC, or null when .NET can't normalize it because it has U+FFFE or an unpaired
+     * surrogate, as pasted text or a PDF's character map can. Such text compares as it is.
+     */
+    private fun tryNormalize(text: String): String? = try {
+        DotNetNormalization.formC(text)
+    } catch (e: IllegalArgumentException) {
+        null
     }
 
     /** Characters of [expected] that are missing from [actual]. */
