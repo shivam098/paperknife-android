@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The blue of PaperKnife's icon on Windows and Mac. -->
+    <color name="ic_launcher_background">#1E5BB8</color>
+</resources>
