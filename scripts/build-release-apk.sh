@@ -38,8 +38,10 @@ fi
 apk=app/build/outputs/apk/release/app-release.apk
 tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)"
 "$tools/apksigner" verify --print-certs "$apk" | tee signature.txt
-if ! grep -q "Signer #1 certificate SHA-256 digest: $expected_certificate" signature.txt; then
-  echo "The APK isn't signed with PaperKnife's release key." >&2
+# apksigner prints "Signer #1 certificate SHA-256 digest: ..." or, newer, "V2 Signer: certificate ...".
+digests="$(sed -n -E 's/.*certificate SHA-256 digest: ([0-9a-f]+).*/\1/p' signature.txt | sort -u)"
+if [ "$digests" != "$expected_certificate" ]; then
+  echo "The APK isn't signed with PaperKnife's release key alone, but with: $digests" >&2
   exit 1
 fi
 
