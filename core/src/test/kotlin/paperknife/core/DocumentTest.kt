@@ -17,6 +17,21 @@ class DocumentTest {
         assertEquals(PdfErrorCode.InvalidFormat, error.errorCode)
     }
 
+    /**
+     * Not a test of PaperKnife for Windows: the app asks for a password when opening a session
+     * says one is needed, which PDFium reports through its last error (read differently on
+     * Windows than on Linux and Android).
+     */
+    @Test
+    fun aWrongPasswordIsReportedAsPasswordRequired() {
+        val encrypted = CorpusDocuments.noChangesNoCopying()
+
+        val error = assertFailsWith<PdfException> { DocumentSession.fromSnapshot(encrypted, "wrong") }
+
+        assertEquals(PdfErrorCode.PasswordRequired, error.errorCode)
+        DocumentSession.fromSnapshot(encrypted).use { session -> assertEquals(1, session.pageCount) }
+    }
+
     @Test
     fun renderPageDrawsContentOnWhite() {
         DocumentSession.fromSnapshot(CorpusDocuments.baseContent()).use { session ->
