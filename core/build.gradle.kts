@@ -5,6 +5,9 @@ import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 plugins {
     alias(libs.plugins.kotlin.jvm)
     `java-library`
+
+    // The conformance runner, which the JVM's tests and the app's instrumented test share.
+    `java-test-fixtures`
 }
 
 kotlin {
