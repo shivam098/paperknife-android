@@ -65,7 +65,7 @@ internal object ContentParser {
                 }
 
                 val length = unfilteredLength(dict)
-                if (length != null && data + length <= span.size) {
+                if (length != null && length <= span.size - data) {
                     val after = PdfLexer(lexer.data, data + length)
                     val end = after.next()
                     if (end.isKeyword("EI")) {
@@ -132,11 +132,20 @@ internal object ContentParser {
         val width = number("W", "Width")
         val height = number("H", "Height")
         return if (components != null && bits != null && width != null && height != null) {
-            height * (((width * components * bits) + 7) / 8)
+            size(components, bits, width, height)
         } else {
             null
         }
     }
+
+    /** The size of an image's data, or null when it doesn't fit in an int, as no content stream's can. */
+    private fun size(components: Int, bits: Int, width: Int, height: Int): Int? =
+        try {
+            // C#'s checked arithmetic: a step that overflows 32 bits throws.
+            Math.multiplyExact(height, Math.addExact(Math.multiplyExact(Math.multiplyExact(width, components), bits), 7) / 8)
+        } catch (_: ArithmeticException) {
+            null
+        }
 }
 
 /** A point, as C#'s tuple (double X, double Y). */
