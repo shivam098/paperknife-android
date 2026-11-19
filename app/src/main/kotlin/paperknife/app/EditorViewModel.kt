@@ -16,7 +16,6 @@ import kotlinx.coroutines.withContext
 import paperknife.core.support.isDotNetWhiteSpace
 import java.io.File
 import java.io.OutputStream
-import java.util.UUID
 import java.util.concurrent.Executors
 import kotlin.math.max
 import kotlin.math.min
@@ -270,10 +269,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
         val suggestedName = documentName?.let { "${it.substringBeforeLast('.')} (edited).pdf" } ?: "document.pdf"
         val uri = chooseSaveLocation(suggestedName) ?: return false
-        val scratch = File(getApplication<Application>().cacheDir, "save-${UUID.randomUUID()}.pdf")
         setBusy(true, "Saving…")
         try {
-            withContext(engine) { openForWriting(uri).use { editor.saveTo(it, scratch) } }
+            withContext(engine) { openForWriting(uri).use { editor.saveTo(it) } }
         } catch (e: Exception) {
             refreshState()
             setBusy(false)

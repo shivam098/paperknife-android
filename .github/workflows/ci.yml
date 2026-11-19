@@ -85,6 +85,7 @@ jobs:
             sleep 8
             adb exec-out screencap -p > screenshot-document.png
             bash scripts/ci-tap-page.sh 0.2191 0.1365 "Hello World" screenshot-selected.png
+            bash scripts/ci-edit-text.sh "Hello PaperKnife" "Text updated" screenshot-edited.png
 
       - uses: actions/upload-artifact@v7
         if: always()

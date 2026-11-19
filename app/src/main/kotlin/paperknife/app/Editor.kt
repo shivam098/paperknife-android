@@ -1,14 +1,15 @@
 package paperknife.app
 
 import android.graphics.Bitmap
-import paperknife.core.PdfDocument
+import paperknife.core.DocumentSession
+import paperknife.core.EditResult
+import paperknife.core.EditStatus
 import paperknife.core.PdfErrorCode
 import paperknife.core.PdfException
 import paperknife.core.PdfRect
 import paperknife.core.PdfSnapshot
 import paperknife.core.PdfTextRun
 import paperknife.core.RenderedBitmap
-import java.io.File
 import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -64,16 +65,11 @@ class PageBitmap(val bitmap: Bitmap, val width: Int, val height: Int)
 /**
  * PaperKnife's engine as the app uses it: a DocumentSession, ported from PaperKnife for Windows.
  * Calls can take long, so EditorViewModel makes them on its engine thread, one at a time.
- *
- * Until the session is ported, this opens, draws and reads documents with the engine's document
- * layer, and every command that would change a document fails with a message.
  */
-class Editor private constructor(private val document: PdfDocument) {
+class Editor private constructor(private val session: DocumentSession) {
     companion object {
-        private const val NOT_YET = "This build of PaperKnife can show PDFs but can't change them yet."
-
         fun open(bytes: ByteArray, password: String?): Editor = engine {
-            Editor(PdfDocument.load(PdfSnapshot.fromBytes(bytes), password))
+            Editor(DocumentSession.fromSnapshot(PdfSnapshot.fromBytes(bytes), password))
         }
 
         /** Makes an engine call, turning the engine's failures into an EditorException with its message. */
@@ -88,6 +84,15 @@ class Editor private constructor(private val document: PdfDocument) {
             fontName, isFontEmbedded, isFontSubset, fontSize, isInvisible,
         )
 
+        private fun EditResult.toApp() = EditOutcome(
+            when (status) {
+                EditStatus.Applied -> EditOutcome.Status.Applied
+                EditStatus.NoChange -> EditOutcome.Status.NoChange
+                EditStatus.Rejected -> EditOutcome.Status.Rejected
+            },
+            message, warnings, details, textRun?.toApp(),
+        )
+
         /** PDFium's BGRA pixels, which are Android's ARGB colours read as little-endian integers. */
         private fun RenderedBitmap.toBitmap(): Bitmap {
             val colors = IntArray((stride / 4) * height)
@@ -96,49 +101,54 @@ class Editor private constructor(private val document: PdfDocument) {
         }
     }
 
-    val state: SessionState get() = SessionState(pageCount = document.pageCount, signatureCount = document.signatureCount)
+    /** The session's state; an empty one once the session is closed, as on Windows. */
+    val state: SessionState
+        get() = try {
+            SessionState(session.pageCount, session.canUndo, session.canRedo, session.isModified, session.signatureCount)
+        } catch (e: IllegalStateException) {
+            SessionState()
+        }
 
     /** The page's displayed width and height in points. */
-    fun pageSize(page: Int): Pair<Float, Float> = engine { document.getPage(page).let { it.width to it.height } }
+    fun pageSize(page: Int): Pair<Float, Float> = engine { session.getPageSize(page).let { it.width to it.height } }
 
     fun render(page: Int, width: Int, height: Int): PageBitmap = engine {
-        val rendered = document.getPage(page).render(width, height)
+        val rendered = session.renderPage(page, width, height)
         PageBitmap(rendered.toBitmap(), rendered.width, rendered.height)
     }
 
-    fun textRuns(page: Int): List<TextRun> = engine { document.getPage(page).getTextRuns().map { it.toApp() } }
+    fun textRuns(page: Int): List<TextRun> = engine { session.getTextRuns(page).map { it.toApp() } }
 
-    fun textRun(page: Int, objectIndex: Int): TextRun? = engine { document.getPage(page).tryGetTextRun(objectIndex)?.toApp() }
+    fun textRun(page: Int, objectIndex: Int): TextRun? = engine { session.getTextRun(page, objectIndex)?.toApp() }
 
     fun hitTest(page: Int, width: Int, height: Int, x: Int, y: Int): TextRun? =
-        engine { document.getPage(page).hitTestText(width, height, x, y)?.toApp() }
+        engine { session.hitTestText(page, width, height, x, y)?.toApp() }
 
     /** The rectangle in the pixels of a page drawn at this size, or null when it can't be mapped. */
     fun mapToPixels(page: Int, rect: PageRect, width: Int, height: Int): PixelRect? = engine {
-        val mapped = document.getPage(page).mapToPixels(PdfRect(rect.left, rect.bottom, rect.right, rect.top), width, height)
+        val mapped = session.mapToPixels(page, PdfRect(rect.left, rect.bottom, rect.right, rect.top), width, height)
         PixelRect(mapped.x, mapped.y, mapped.width, mapped.height)
     }
 
-    fun editBlockers(page: Int): List<String> = emptyList()
+    fun editBlockers(page: Int): List<String> = engine { session.getTextEditBlockers(page) }
 
-    fun replaceText(page: Int, objectIndex: Int, text: String): EditOutcome = throw EditorException(NOT_YET)
+    fun replaceText(page: Int, objectIndex: Int, text: String): EditOutcome = engine { session.replaceText(page, objectIndex, text).toApp() }
 
-    fun rotatePage(page: Int, quarterTurns: Int): EditOutcome = throw EditorException(NOT_YET)
+    fun rotatePage(page: Int, quarterTurns: Int): EditOutcome = engine { session.rotatePage(page, quarterTurns).toApp() }
 
-    fun deletePage(page: Int): EditOutcome = throw EditorException(NOT_YET)
+    fun deletePage(page: Int): EditOutcome = engine { session.deletePage(page).toApp() }
 
-    fun appendDocument(bytes: ByteArray): EditOutcome = throw EditorException(NOT_YET)
+    fun appendDocument(bytes: ByteArray): EditOutcome = engine { session.appendDocument(PdfSnapshot.fromBytes(bytes)).toApp() }
 
-    fun undo(): Boolean = false
+    fun undo(): Boolean = engine { session.undo() }
 
-    fun redo(): Boolean = false
+    fun redo(): Boolean = engine { session.redo() }
 
     /**
-     * Writes the document to [destination], then records it as saved, through a complete copy in
-     * [scratch] that is deleted afterwards. If writing to the destination fails, the document stays
-     * unsaved.
+     * Writes the document to [destination], then records it as saved. If writing or flushing
+     * fails, the document stays unsaved.
      */
-    fun saveTo(destination: OutputStream, scratch: File): Unit = throw EditorException(NOT_YET)
+    fun saveTo(destination: OutputStream): Unit = engine { session.saveTo(destination) }
 
-    fun close() = document.close()
+    fun close() = session.close()
 }
