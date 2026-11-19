@@ -16,15 +16,19 @@ import paperknife.core.syntax.CosNumber
 import paperknife.core.syntax.CosObject
 import paperknife.core.syntax.CosStream
 import paperknife.core.syntax.PdfFile
+import paperknife.core.syntax.PdfLexer
 import paperknife.core.syntax.PdfPageNode
+import paperknife.core.syntax.PdfToken
+import paperknife.core.syntax.PdfTokenKind
 import java.io.File
 import java.security.MessageDigest
 import java.util.Arrays
 import java.util.HexFormat
 import kotlin.math.abs
-import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -32,7 +36,9 @@ import kotlin.test.fail
  * The conformance corpus (conformance/README.md): every stored case, run from its stored
  * documents and steps, must give the stored observations. A port of
  * `ConformanceTests.StoredCase_GivesTheStoredObservations` in PaperKnife for Windows, which
- * observes the session as its `CorpusRecorder` does: the same calls, in the same order.
+ * observes the session as its `CorpusRecorder` does: the same calls, in the same order. Off
+ * Windows, the bounds and content that follow the fonts PDFium finds on the computer are compared
+ * as the README's “Comparing” section says ([boundsTolerance], [contentMayDiffer]).
  */
 class ConformanceTests {
     @TestFactory
@@ -76,11 +82,71 @@ class ConformanceTests {
         assertEquals(5, lines.size, error.message)
     }
 
+    /**
+     * Not a test of PaperKnife for Windows: content that may differ off Windows must still have the
+     * corpus's tokens, numbers within 0.0001. The content is runs-layout-as-saved-pdfium-rewrite's
+     * after its step, which places the third “A” at 96.012.
+     */
+    @Test
+    fun contentThatMayDifferMustHaveTheSameTokens() {
+        val expected = File(corpus, "contents/78ada6cb56c6.content").readBytes()
+        fun changed(from: String, to: String): ByteArray {
+            val text = String(expected, Charsets.ISO_8859_1)
+            assertTrue(text.contains(from), from)
+            return text.replaceFirst(from, to).toByteArray(Charsets.ISO_8859_1)
+        }
+
+        assertNull(contentTokenDifference(expected, expected))
+        assertNull(contentTokenDifference(changed(" 96.012 ", " 96.01201 "), expected))
+        assertEquals("token 88, at byte 227, is “96.0102”, not “96.012”", contentTokenDifference(changed(" 96.012 ", " 96.0102 "), expected))
+        assertEquals("token 103, at byte 277, is “q”, not the end", contentTokenDifference(expected + " q".toByteArray(Charsets.ISO_8859_1), expected))
+        assertEquals("token 62, at byte 161, is “Td”, not “Tm”", contentTokenDifference(changed(" 700 Tm /FXF1 12 Tf 0 Tr [<41>]", " 700 Td /FXF1 12 Tf 0 Tr [<41>]"), expected))
+    }
+
+    /**
+     * Not a test of PaperKnife for Windows: off Windows, a page's content whose hash differs from
+     * the corpus's is compared by its tokens, here runs-layout-as-saved-pdfium-rewrite's after its
+     * step, against content kept under another hash whose third “A” is at 96.01201 (as on Ubuntu,
+     * where the step places it there) or 96.0102.
+     */
+    @Test
+    fun offWindowsContentThatDiffersIsComparedByItsTokens() {
+        TestFiles.useBundledFonts()
+        val hash = "78ada6cb56c6c9b07e5d6f864a8c4a2bd2c38b17a603072fb41f57572c4e4622"
+        val other = "0".repeat(64)
+        val stored = File(corpus, "cases/runs-layout-as-saved-pdfium-rewrite.json").readText(Charsets.UTF_8)
+        val json = stored.replace("\"content\": \"$hash\"", "\"content\": \"$other\"")
+        assertNotEquals(stored, json)
+        val kept = String(keptContentFile(hash)!!, Charsets.ISO_8859_1)
+        fun runWith(x: String) {
+            val content = kept.replace(" 96.012 ", " $x ").toByteArray(Charsets.ISO_8859_1)
+            CaseRun(json, onWindows = false) { h -> if (h == other) content else keptContentFile(h) }.check()
+        }
+
+        runWith("96.01201")
+        val error = assertFailsWith<AssertionError> { runWith("96.0102") }
+
+        val lines = error.message!!.lines()
+        assertEquals(2, lines.size, error.message)
+        val step = "step 1 (replaceText “AAA” with “ABAA” on page 1, without content editing): $.steps[0].expect.state.pages[0].content is “"
+        assertTrue(lines[1].startsWith(step), lines[1])
+        assertTrue(lines[1].contains("”, not “$other”: token 88, at byte 227, is “96.01") && lines[1].endsWith("”, not “96.0102”"), lines[1])
+    }
+
     private fun caseFiles(): List<File> =
         File(corpus, "cases").listFiles().orEmpty().filter { file -> file.name.endsWith(".json") }.sortedBy { file -> file.nameWithoutExtension }
 
-    /** One case: its session, the files of its earlier states, and what differs from the corpus. */
-    private class CaseRun(json: String) {
+    /**
+     * One case: its session, the files of its earlier states, and what differs from the corpus.
+     *
+     * @param onWindows Whether to compare as on Windows, where the corpus was recorded.
+     * @param keptContent The decoded content the corpus keeps for a page's content hash (contents/), or null.
+     */
+    private class CaseRun(
+        json: String,
+        private val onWindows: Boolean = IS_WINDOWS,
+        private val keptContent: (String) -> ByteArray? = ::keptContentFile,
+    ) {
         private val stored = MiniJson.parse(json) as Map<*, *>
         private val id = stored["id"] as String
         private val problems = ArrayList<String>()
@@ -227,19 +293,13 @@ class ConformanceTests {
         /**
          * Adds where an observation differs from the corpus's (ConformanceTests.Difference): objects
          * have the same keys, arrays the same items, numbers may differ by [TOLERANCE], and
-         * everything else must be equal. A run's bounds are compared by [compareBounds], and
-         * [PLATFORM_FONT_VALUES] are compared only on Windows.
+         * everything else must be equal. A run's bounds are compared by [compareBounds], and a page's
+         * content that may differ off Windows ([contentMayDiffer]) by [compareContentTokens].
          *
          * @param path Where the value is in the case, as in PaperKnife for Windows' messages ("$.initial.pageCount").
          * @param label The step the value is observed after, for messages; empty for the initial state.
          */
         private fun compare(expected: Any?, actual: Any?, path: String, label: String) {
-            val excluded = if (IS_WINDOWS) null else PLATFORM_FONT_VALUES[id]?.get(path)
-            if (excluded != null) {
-                println("$id: $path is ${show(actual)}, not compared with the corpus's ${show(expected)} off Windows: $excluded")
-                return
-            }
-
             when {
                 expected == null && actual == null -> {}
                 expected is Map<*, *> && actual is Map<*, *> -> {
@@ -248,6 +308,8 @@ class ConformanceTests {
                             problem(label, "$path.$key is ${if (expected.containsKey(key)) "missing" else "unexpected"}")
                         } else if (key == "bounds") {
                             compareBounds(expected, actual, "$path.bounds", label)
+                        } else if (key == "content" && expected[key] != actual[key] && contentMayDiffer(expected, onWindows)) {
+                            compareContentTokens(expected[key], actual[key], "$path.content", label)
                         } else {
                             compare(expected[key], actual[key], "$path.$key", label)
                         }
@@ -279,7 +341,7 @@ class ConformanceTests {
         private fun compareBounds(expectedRun: Map<*, *>, actualRun: Map<*, *>, path: String, label: String) {
             val expected = expectedRun["bounds"]
             val actual = actualRun["bounds"]
-            val tolerance = boundsTolerance(expectedRun)
+            val tolerance = boundsTolerance(expectedRun, onWindows)
             if (tolerance == null) {
                 println("$id: $path is ${show(actual)}, not compared with the corpus's ${show(expected)} off Windows: “${expectedRun["font"]}” isn't embedded.")
                 return
@@ -301,15 +363,30 @@ class ConformanceTests {
             problems.add(if (label.isEmpty()) text else "$label: $text")
         }
 
+        /**
+         * Compares a page's decoded content with the corpus's by its tokens ([contentTokenDifference]),
+         * where its hash differs and it may ([contentMayDiffer]), and says so when they match.
+         */
+        private fun compareContentTokens(expectedHash: Any?, actualHash: Any?, path: String, label: String) {
+            val actual = contents[actualHash]
+            val kept = (expectedHash as? String)?.let { hash -> keptContent(hash) }
+            if (actual == null || kept == null) {
+                compare(expectedHash, actualHash, path, label)
+                return
+            }
+
+            val difference = contentTokenDifference(actual, kept)
+            if (difference != null) {
+                problem(label, "$path is ${show(actualHash)}, not ${show(expectedHash)}: $difference")
+            } else {
+                println("$id: $path is ${show(actualHash)}, not ${show(expectedHash)}, with the same tokens but for numbers within ${DotNetMath.formatUpTo10Decimals(CONTENT_NUMBER_TOLERANCE)}.")
+            }
+        }
+
         /** Where decoded content first differs from what the corpus keeps in contents/, when it keeps it. */
         private fun contentDifference(expectedHash: Any?, actualHash: Any?): String? {
             val content = contents[actualHash] ?: return null
-            val kept = File(corpus, "contents/${(expectedHash as? String)?.take(12)}.content")
-            if (expectedHash !is String || !kept.isFile) {
-                return null
-            }
-
-            val expected = kept.readBytes()
+            val expected = (expectedHash as? String)?.let { hash -> keptContent(hash) } ?: return null
             val at = (0 until minOf(expected.size, content.size)).firstOrNull { i -> expected[i] != content[i] } ?: minOf(expected.size, content.size)
             return "the content has ${content.size} bytes, not ${expected.size}; they first differ at byte $at: " +
                 "“${latin1(content, at)}” instead of “${latin1(expected, at)}”"
@@ -342,6 +419,10 @@ class ConformanceTests {
 
         val corpus = File(TestFiles.root, "conformance")
 
+        /** The decoded content the corpus keeps for a content hash, named by its first 12 hex digits, or null. */
+        fun keptContentFile(hash: String): ByteArray? =
+            File(corpus, "contents/${hash.take(12)}.content").takeIf { file -> file.isFile }?.readBytes()
+
         val IS_WINDOWS = System.getProperty("os.name").startsWith("Windows")
 
         val STANDARD_FONTS = setOf(
@@ -358,28 +439,61 @@ class ConformanceTests {
          * differ by a tenth of its size, and the bounds of a run in any other font that isn't
          * embedded aren't compared. Everything else, and everything on Windows, is exact.
          */
-        fun boundsTolerance(run: Map<*, *>): Double? = when {
-            IS_WINDOWS || run["embedded"] == true -> TOLERANCE
+        fun boundsTolerance(run: Map<*, *>, onWindows: Boolean = IS_WINDOWS): Double? = when {
+            onWindows || run["embedded"] == true -> TOLERANCE
             STANDARD_FONTS.contains(run["font"] as String) -> (run["size"] as Double) / 10
             else -> null
         }
 
         /**
-         * Other values that follow the fonts PDFium finds on the computer, which aren't compared off
-         * Windows, by case and path, with why. Where PDFium's page rewrite moves the rest of a line
-         * to fit an edit, the old text's end is measured from PDFium's character boxes (see
-         * `TextLayout.measureLastAdvance`), which take the substitute font's glyph shapes for a font
-         * that isn't embedded. So the moved text's position can differ in its last digits.
+         * Whether a page's content may differ from the corpus's (the corpus README, “Comparing”): off
+         * Windows, when the page has a run whose font isn't embedded. Where PaperKnife measures such a
+         * run to move the text after it, it measures with the font PDFium finds on the computer, so
+         * the text can land slightly elsewhere (on Ubuntu, runs-layout-as-saved-pdfium-rewrite writes
+         * 96.01201 for 96.012). Such content must still have the corpus's tokens ([contentTokenDifference]).
          */
-        val PLATFORM_FONT_VALUES: Map<String, Map<String, String>> = mapOf(
-            // On Ubuntu 24.04 the third "A" lands at x = 96.01201 rather than 96.012, which changes
-            // the content PDFium writes; the same edit in the content stream (runs-layout-as-saved-
-            // content-stream), which measures the old text by its advance widths, matches.
-            "runs-layout-as-saved-pdfium-rewrite" to mapOf(
-                "$.steps[0].expect.state.pages[0].content" to
-                    "PDFium's rewrite placed the moved text by the end of “A” in the font it draws Helvetica with",
-            ),
-        )
+        fun contentMayDiffer(page: Map<*, *>, onWindows: Boolean = IS_WINDOWS): Boolean =
+            !onWindows && (page["runs"] as List<*>).any { run -> (run as Map<*, *>)["embedded"] == false }
+
+        /** How far a number in content that may differ ([contentMayDiffer]) may be from the corpus's. */
+        const val CONTENT_NUMBER_TOLERANCE = 0.0001
+
+        /**
+         * Where decoded content first differs from [expected], both read with PaperKnife's lexer, or
+         * null when they have the same tokens: as many, of the same kinds, with the same text (and
+         * bytes, for strings), except that numbers may differ by up to [CONTENT_NUMBER_TOLERANCE].
+         */
+        fun contentTokenDifference(actual: ByteArray, expected: ByteArray): String? {
+            val actualTokens = PdfLexer(actual)
+            val expectedTokens = PdfLexer(expected)
+            var index = 1
+            while (true) {
+                val a = actualTokens.next()
+                val e = expectedTokens.next()
+                if (a.kind == PdfTokenKind.End && e.kind == PdfTokenKind.End) {
+                    return null
+                }
+
+                val same = a.kind == e.kind && if (a.kind == PdfTokenKind.Number) {
+                    abs(a.number - e.number) <= CONTENT_NUMBER_TOLERANCE
+                } else {
+                    a.text == e.text && a.bytes.contentEquals(e.bytes)
+                }
+
+                if (!same) {
+                    return "token $index, at byte ${a.start}, is ${token(a)}, not ${token(e)}"
+                }
+
+                index++
+            }
+        }
+
+        private fun token(token: PdfToken): String = when (token.kind) {
+            PdfTokenKind.End -> "the end"
+            PdfTokenKind.String -> "“<${HexFormat.of().withUpperCase().formatHex(token.bytes!!)}>”"
+            PdfTokenKind.Name -> "“/${token.text}”"
+            else -> "“${token.text}”"
+        }
 
         /** A run as the corpus stores it (CorpusRecorder.Run). */
         fun json(run: PdfTextRun): Map<String, Any?> = mapOf(
