@@ -4,19 +4,20 @@ import com.sun.jna.Library
 import com.sun.jna.Memory
 import com.sun.jna.Native
 import com.sun.jna.Pointer
+import paperknife.core.pdfium.PdfiumLibrary
+import paperknife.core.pdfium.SizeT
 import java.lang.ref.Reference
 
 /**
  * The text PDFium extracts from a page, for tests that check that PDFium reads what PaperKnife
  * writes, where PaperKnife for Windows' tests open a DocumentSession (which the PDFium layer
- * ports). Calls hold the lock [Toolchain] takes, as PDFium isn't thread-safe.
+ * ports). Calls hold [PdfiumLibrary.sync], as every PDFium call does, because PDFium isn't
+ * thread-safe.
  */
 internal object PdfiumText {
     @Suppress("FunctionName")
     private interface Pdfium : Library {
-        fun FPDF_InitLibrary()
-
-        fun FPDF_LoadMemDocument64(data: Pointer, size: Toolchain.SizeT, password: String?): Pointer?
+        fun FPDF_LoadMemDocument64(data: Pointer, size: SizeT, password: String?): Pointer?
 
         fun FPDF_CloseDocument(document: Pointer)
 
@@ -34,16 +35,17 @@ internal object PdfiumText {
     }
 
     private val pdfium: Pdfium by lazy {
-        Native.load("pdfium", Pdfium::class.java).also { library -> library.FPDF_InitLibrary() }
+        PdfiumLibrary.ensureInitialized()
+        Native.load("pdfium", Pdfium::class.java)
     }
 
     /** The text of a page as PDFium extracts it, or null when PDFium can't open the document or the page. */
-    fun pageText(data: ByteArray, pageIndex: Int): String? = synchronized(Toolchain) {
+    fun pageText(data: ByteArray, pageIndex: Int): String? = synchronized(PdfiumLibrary.sync) {
         // PDFium reads the document from this memory until it is closed.
         val memory = Memory(data.size.toLong())
         memory.write(0, data, 0, data.size)
         try {
-            val document = pdfium.FPDF_LoadMemDocument64(memory, Toolchain.SizeT(data.size.toLong()), null) ?: return null
+            val document = pdfium.FPDF_LoadMemDocument64(memory, SizeT(data.size.toLong()), null) ?: return null
             try {
                 val page = pdfium.FPDF_LoadPage(document, pageIndex) ?: return null
                 try {

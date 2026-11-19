@@ -21,6 +21,27 @@ follow. PaperKnife for Mac ports the same engine to Swift.
 - `:core` is a plain JVM library: no Android APIs, so it runs in JVM tests and in the app alike.
   It calls PDFium through JNA (see below).
 
+### Shapes C# has and Kotlin doesn't
+
+The ported layers settled these; follow them so the layers fit together.
+
+- **`out` and `ref` parameters** become a `Ref<T>` holder (`support/DotNetRef.kt`) in the same
+  position, for example `PdfFile.tryOpen(data, problem)`. Where C# callers usually pass `out _`,
+  the Kotlin parameter is nullable. A C# `bool TryX(…, out T value)` that only returns a value
+  may instead return `T?`, null for false (`TextLayout.tryJoin`).
+- **Tuples** become small data classes (`PdfPoint`, `ShowSegment`, `PagePoint`, `PixelSize`).
+- **Spans** become an array with an offset and a length (`StreamFilters.decode(data, offset,
+  length, …)`). `PdfSnapshot.span` returns a copy, because Kotlin has no read-only arrays; the
+  engine's own code reads `PdfSnapshot.memory`, the array itself, and never changes it.
+- **`IDisposable`** is `AutoCloseable`: `Dispose()` is `close()`.
+- **Constants** are `UPPER_SNAKE_CASE` (`MAX_OBJECT_NUMBER`); static singletons keep their role
+  (`CosNull.instance`, `PdfMatrix.identity`). A member named after a Kotlin keyword is quoted
+  (`` PsToken.`is` ``).
+- **Records** compare their `float` and `double` fields as C# does: 0 equals -0, and NaN equals
+  NaN (`support/DotNetFloat.kt`). Kotlin data classes compare doubles with `equals`, which
+  differs on both counts, so records holding floating point numbers implement `equals` and
+  `hashCode` themselves (see `PdfRect`, `PdfMatrix`).
+
 ## Semantics that must not change
 
 Kotlin is closer to C# than most languages: strings are UTF-16, `==` on strings and `compareTo`
@@ -40,7 +61,11 @@ are the places where it still differs. Ported code follows these rules everywher
    and `lines()` use a different set of white space than C#. Use `DotNetChar.isWhiteSpace`,
    `dotNetTrim`, `dotNetTrimStart`, `dotNetTrimEnd` and `isDotNetWhiteSpace`. Unicode categories
    are `DotNetChar.category`; `char.IsControl` is `DotNetChar.isControl`. `Normalize(FormC)` and
-   `Normalize(FormKC)` are `normalizedFormC` and `normalizedFormKC`.
+   `Normalize(FormKC)` are `strictNormalizedFormC` and `strictNormalizedFormKC` (or
+   `DotNetNormalization.formC`/`formKC`): like .NET they throw `IllegalArgumentException` for an
+   unpaired surrogate or U+FFFE, which C# code catches to give up on text it can't read. The
+   lenient `normalizedFormC` and `normalizedFormKC` never throw; use them only where the C# code
+   can't receive such text.
 4. **Ordered collections.** C#'s `Dictionary` and `HashSet` enumerate in insertion order, except
    that an entry added after a removal takes the most recently freed place. `LinkedHashMap` and
    `LinkedHashSet` (Kotlin's `mutableMapOf`, `mutableSetOf`, `associate…`, `groupBy`) keep
@@ -61,11 +86,17 @@ are the places where it still differs. Ported code follows these rules everywher
    is `DotNetMath.formatUpTo10Decimals(DotNetMath.round(value, 10))`, with "-0" written as "0".
    Messages that format numbers use the invariant culture's format, which the corpus records
    (`String.format(Locale.ROOT, …)` where it matches). Parse only the syntax the C# code accepts:
-   `DotNetParse.hexInt32` for `AllowHexSpecifier`, `DotNetParse.int32` for `int.TryParse`, and for
-   `double.TryParse` check the same characters the C# lexer allows before calling `toDouble()`.
-7. **Text encodings.** `Encoding.Latin1` is `Charsets.ISO_8859_1` (characters past U+00FF encode
-   as "?", as in .NET). Check that UTF-16 and UTF-8 decoding replaces invalid input the way .NET
-   does (U+FFFD) wherever the C# code decodes text from a PDF, and test the edge cases it handles.
+   `DotNetParse.hexInt32` for `AllowHexSpecifier`, `DotNetParse.int32` for `int.TryParse`,
+   `DotNetParse.signedInt32` and `DotNetParse.finiteDouble` where the lexer parses numbers.
+7. **Text encodings.** `Encoding.Latin1.GetString` is `String(bytes, Charsets.ISO_8859_1)`.
+   `Encoding.Latin1.GetBytes` agrees with `Charsets.ISO_8859_1` for characters up to U+00FF,
+   which is all the engine encodes (PDF syntax written by `CosWriter`: operators, numbers, and
+   names and strings whose characters are bytes). Above U+00FF they differ: .NET maps characters
+   to look-alikes (Ł to "L", ’ to "'", “ to `"`) and the rest to "?", one per UTF-16 code unit
+   (so an emoji gives "??"), while Java writes one "?". Never let ported code encode such
+   characters. `Encoding.UTF8` is `DotNetUtf8` and `Encoding.BigEndianUnicode.GetString` is
+   `DotNetEncoding.bigEndianUnicode`: Java's decoders replace invalid input differently from
+   .NET (U+FFFD per invalid sequence, and U+FFFE kept).
 8. **Exceptions.** Where C# throws and catches (for example `PdfException`, or the read failures
    `DocumentSession` turns into refusals), Kotlin throws and catches exceptions with the same
    meaning and messages. Map catch clauses by meaning: C#'s `IndexOutOfRangeException` is
@@ -74,22 +105,28 @@ are the places where it still differs. Ported code follows these rules everywher
    `IllegalStateException`.
 9. **Messages.** Copy every message shown to users exactly, typographic quotes (“ ” ’) included:
    the corpus compares them.
-10. **PDFium.** `:core` calls PDFium's C API through JNA (`compileOnly` in `:core`; the tests use
+10. **PDFium.** `:core` calls PDFium's C API through JNA's direct mapping
+    (`pdfium/PdfiumNative.kt`, `Native.register`), which is much faster than interface mapping
+    for the many calls per character `TextLayout` makes (`compileOnly` in `:core`; the tests use
     the desktop JAR and the app JNA's Android archive). All calls go through `PdfiumLibrary`
-    under one global lock, as C#'s `lock (PdfiumLibrary.Sync)` does, because PDFium isn't
-    thread-safe. Map C types exactly, because the app runs on 32-bit and 64-bit devices: `int` is
-    `Int`, `unsigned long` is `NativeLong` (32 bits on Windows and 32-bit Android), `size_t` is a
-    `size_t` `IntegerType` (see `Toolchain.SizeT`), handles are `Pointer`. `FPDF_WIDESTRING` is
-    UTF-16LE with a two-byte terminator: pass a `ByteArray` or `Memory`, never JNA's `WString`
-    (which is 32-bit `wchar_t` on Linux and Android). Keep callback objects (such as the
-    `FPDF_FILEWRITE` used for saving) strongly referenced for the whole call.
+    under one global lock, `PdfiumLibrary.sync`, as C#'s `lock (PdfiumLibrary.Sync)` does,
+    because PDFium isn't thread-safe. Map C types exactly, because the app runs on 32-bit and
+    64-bit devices: `int` is `Int`, `unsigned long` is `NativeLong` (32 bits on Windows and
+    32-bit Android), `size_t` is `SizeT`, handles are `Pointer`. `FPDF_WIDESTRING` is UTF-16LE
+    with a two-byte terminator (`PdfiumNative.wideString`), never JNA's `WString` (which is
+    32-bit `wchar_t` on Linux and Android). PDFium reads a document's bytes until it is closed,
+    so they live in native memory (`Memory`) for that long: never pass a Java array to
+    `FPDF_LoadMemDocument64`, because JNA frees its copy when the call returns. Keep callback
+    objects (such as the `FPDF_FILEWRITE` used for saving) strongly referenced for the whole
+    call. PDFium's last error is read with `PdfiumNative.lastError()`: on Windows the JVM
+    clears the thread's error between native calls.
 11. **Fonts.** The fonts the Windows app compiles in or ships in `Fonts\` (AMS Computer Modern,
     Latin Modern, CM-Super) and the Adobe Glyph List ship in the Android app as assets
     (`assets/fonts/{amsfonts,cm-super,lm}/*.pfb` and `assets/fonts/glyphlist.txt`), which aren't
-    files. `BundledFonts` therefore reads them through a source the app sets: the files' paths
-    relative to the fonts folder, in ordinal order (amsfonts, then cm-super, then lm, which keeps
-    the Windows precedence), and a way to read each and the glyph list. Tests set it to the files
-    in `third_party/`.
+    files. `BundledFonts.source` is therefore a `FontSource` the app sets: the fonts' paths
+    relative to the fonts folder (read in ordinal order: amsfonts, then cm-super, then lm, which
+    keeps the Windows precedence), a way to open each, and a way to open the glyph list. Tests set
+    it to the files in `third_party/`.
 
 ## Tests
 

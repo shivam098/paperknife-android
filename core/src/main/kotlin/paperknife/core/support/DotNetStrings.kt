@@ -41,25 +41,9 @@ object DotNetEncoding {
 /**
  * C#'s `Normalize(NormalizationForm.FormC)`, refusals included: .NET throws ArgumentException for
  * text with an unpaired surrogate or U+FFFE, which [normalizedFormC] keeps. This throws
- * IllegalArgumentException there.
+ * IllegalArgumentException there, with .NET's message (see [DotNetNormalization]).
  */
-val String.strictNormalizedFormC: String get() = requireNormalizable(this).normalizedFormC
+val String.strictNormalizedFormC: String get() = DotNetNormalization.formC(this)
 
 /** C#'s `Normalize(NormalizationForm.FormKC)`, refusals included (see [strictNormalizedFormC]). */
-val String.strictNormalizedFormKC: String get() = requireNormalizable(this).normalizedFormKC
-
-private fun requireNormalizable(text: String): String {
-    var i = 0
-    while (i < text.length) {
-        val c = text[i]
-        val unpaired = when {
-            Character.isHighSurrogate(c) -> i + 1 >= text.length || !Character.isLowSurrogate(text[++i])
-            else -> c == '\uFFFE' || Character.isLowSurrogate(c)
-        }
-
-        require(!unpaired) { "Invalid Unicode code point found." }
-        i++
-    }
-
-    return text
-}
+val String.strictNormalizedFormKC: String get() = DotNetNormalization.formKC(this)
