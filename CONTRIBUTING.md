@@ -34,4 +34,23 @@ Never change the `applicationId` in `app/build.gradle.kts`: Android identifies t
 updates, by it. When a shipped dependency changes, update its license texts in `third_party/` and
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+## Releasing
+
+1. Write the release notes as `docs/releases/v<version>.md`.
+2. Tag the commit and push the tag, for example `git tag v0.5.1` and `git push origin v0.5.1`.
+3. The [Release workflow](.github/workflows/release.yml) runs CI with that version, including the
+   conformance corpus on an emulator, builds the release APK, signs it, checks that it is signed
+   with PaperKnife's release key and can't go online, and publishes it with its checksum as a
+   GitHub release. Tags with a suffix, such as `v0.5.1-beta.1`, become pre-releases.
+
+The release key is in the repository's secrets `PAPERKNIFE_KEYSTORE_BASE64` (the PKCS12 keystore,
+base64-encoded), `PAPERKNIFE_KEYSTORE_PASSWORD`, `PAPERKNIFE_KEY_ALIAS` and
+`PAPERKNIFE_KEY_PASSWORD`; [scripts/build-release-apk.sh](scripts/build-release-apk.sh) checks the
+certificate's SHA-256. Android installs an update only over an app signed with the same key, so
+never replace it: a release signed with another key can't update PaperKnife on anyone's phone. To
+sign on a computer instead, set `PAPERKNIFE_KEYSTORE` to the keystore's path and the three other
+variables, then run `./gradlew --no-daemon :app:assembleRelease -PpaperknifeVersion=0.5.1`
+(`--no-daemon` because a Gradle daemon started earlier keeps its old environment). Without the
+key, release builds come out unsigned.
+
 By contributing, you agree that your contributions are licensed under the Apache License 2.0.

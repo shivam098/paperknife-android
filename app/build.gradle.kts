@@ -7,6 +7,26 @@ plugins {
 
 val generatedAssets = layout.buildDirectory.dir("generated/paperknife/assets")
 
+// The version: the Release workflow passes -PpaperknifeVersion=0.5.1 (the tag without its "v");
+// other builds are 0.0.0-dev.
+val paperknifeVersion = (findProperty("paperknifeVersion") as String?)?.removePrefix("v") ?: "0.0.0-dev"
+
+/**
+ * The version code Android compares updates by: 0.5.1 is 50199, and its pre-releases, such as
+ * 0.5.1-beta.2, come before it (50102). Development builds are 1.
+ */
+fun versionCodeOf(version: String): Int {
+    if (version == "0.0.0-dev") {
+        return 1
+    }
+
+    val match = Regex("""(\d+)\.(\d+)\.(\d+)(?:-[A-Za-z]+\.?(\d+))?""").matchEntire(version)
+        ?: throw GradleException("The version $version isn't like 0.5.1 or 0.5.1-beta.2.")
+    val (major, minor, patch, pre) = match.destructured
+    require(minor.toInt() < 100 && patch.toInt() < 100 && (pre.isEmpty() || pre.toInt() in 1..98)) { "The version $version is out of range." }
+    return (major.toInt() * 1_000_000) + (minor.toInt() * 10_000) + (patch.toInt() * 100) + (if (pre.isEmpty()) 99 else pre.toInt())
+}
+
 android {
     namespace = "io.github.shivam098.paperknife"
     compileSdk = 35
@@ -16,8 +36,8 @@ android {
         applicationId = "io.github.shivam098.paperknife"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.0.0-dev"
+        versionCode = versionCodeOf(paperknifeVersion)
+        versionName = paperknifeVersion
 
         // The ABIs PDFium is built for; JNA also carries some Android no longer runs.
         ndk {
@@ -29,6 +49,26 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    // The release key, which the Release workflow gives in environment variables from the
+    // repository's secrets. Without it, release builds come out unsigned.
+    val keystore = System.getenv("PAPERKNIFE_KEYSTORE")
+    if (keystore != null) {
+        signingConfigs.create("release") {
+            storeFile = file(keystore)
+            storePassword = System.getenv("PAPERKNIFE_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("PAPERKNIFE_KEY_ALIAS")
+            keyPassword = System.getenv("PAPERKNIFE_KEY_PASSWORD")
+        }
+    }
+
+    buildTypes {
+        release {
+            // JNA finds PDFium's functions by name, which shrinking would rename.
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
+        }
     }
 
     compileOptions {

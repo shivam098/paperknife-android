@@ -4,7 +4,20 @@ on:
   push:
     branches: ['**']
   pull_request:
+  # Run by hand with a version, such as v0.5.1-test, to also build the signed release APK.
   workflow_dispatch:
+    inputs:
+      version:
+        description: The version to build, such as v0.5.1; empty for a development build.
+        type: string
+        default: ''
+  # The Release workflow runs this one with the version of the tag it publishes.
+  workflow_call:
+    inputs:
+      version:
+        description: The version to build, such as v0.5.1; empty for a development build.
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -43,6 +56,23 @@ jobs:
         with:
           name: paperknife-android-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Build, sign and check the release APK
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+          KEYSTORE_BASE64: ${{ secrets.PAPERKNIFE_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.PAPERKNIFE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.PAPERKNIFE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.PAPERKNIFE_KEY_PASSWORD }}
+        run: bash scripts/build-release-apk.sh
+
+      - uses: actions/upload-artifact@v7
+        if: inputs.version != ''
+        with:
+          name: paperknife-android-release
+          path: release/
           if-no-files-found: error
 
   # Pictures of the app on an emulator, with a PDF opened the way another app opens one, to review

@@ -1,46 +1,26 @@
 # PaperKnife for Android — roadmap
 
-Android development starts after Windows milestone M1, so it can reuse a proven editing model
-and the shared test corpus. Each milestone ends with an installable app.
+## Done in 0.5.1
 
-## A0 — Foundation
+- The engine of PaperKnife for Windows, ported line by line, which passes every case of the
+  shared conformance corpus on the JVM and on Android.
+- The app: open PDFs from the file picker or other apps (also password-protected ones), tap text
+  to select it, edit or delete it with verification and a clear reason when an edit is refused,
+  rotate, delete and add pages, undo and redo, save a copy.
+- Signed release APKs for arm64-v8a, armeabi-v7a, x86_64 and x86, built by CI from a tag.
 
-- Gradle project (Kotlin, Jetpack Compose), Apache-2.0 notices, CI that builds the app and runs
-  tests on an emulator.
-- PDFium JNI bridge for arm64-v8a, armeabi-v7a, x86_64 and x86, with all engine calls on one
-  thread.
-- Open PDFs through the system file picker (including password-protected files), page view with
-  pinch zoom.
-- A CI check that the merged manifest has no `INTERNET` permission.
+## Next
 
-## A1 — Verified text editing
+- Keep unsaved changes when Android stops the app in the background.
+- Pinch to zoom; a thumbnail grid with drag to reorder; extract, merge and split.
+- Open PDFs shared from other apps (the share sheet).
 
-- Port the Windows editing model: immutable snapshots, transactional edits, verification
-  (character support, round trip, object counts, pixel comparison), undo and redo.
-- Tap text to select it, edit it, see a clear explanation when an edit is refused.
-- Save a copy through the system picker.
-- Run the shared corpus on emulators and compare results with Windows.
+## Later
 
-## A2 — Pages
-
-- Thumbnail grid with drag to reorder, rotate, delete, extract, merge and split.
-- Share sheet integration: open PDFs sent from other apps.
-
-## A3 — Annotations and forms
-
-- Highlight, notes, ink drawing with stylus support, form filling.
-
-## A4 — Toolbox
-
-- Scan documents with the camera, processed on the device.
-- Compress, images to PDF and PDF to images.
-
-## A5 — Text recognition
-
+- Highlights, notes, ink drawing with stylus support, form filling.
+- Scan documents with the camera, processed on the device; compress, images to PDF and PDF to
+  images.
 - On-device OCR for scanned pages. Tesseract (Apache-2.0) is preferred over proprietary SDKs so
   the app can be published on F-Droid.
-
-## Distribution
-
 - Google Play and F-Droid. F-Droid requires every native library to be built from source, so a
   reproducible PDFium build is needed before submission.
