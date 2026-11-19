@@ -38,9 +38,9 @@ The ported layers settled these; follow them so the layers fit together.
   (`CosNull.instance`, `PdfMatrix.identity`). A member named after a Kotlin keyword is quoted
   (`` PsToken.`is` ``).
 - **Records** compare their `float` and `double` fields as C# does: 0 equals -0, and NaN equals
-  NaN (`support/DotNetFloat.kt`). Kotlin data classes compare doubles with `equals`, which
-  differs on both counts, so records holding floating point numbers implement `equals` and
-  `hashCode` themselves (see `PdfRect`, `PdfMatrix`).
+  NaN (`support/DotNetFloat.kt`, `support/DotNetDouble.kt`). Kotlin data classes compare doubles
+  with `equals`, which differs on both counts, so records holding floating point numbers
+  implement `equals` and `hashCode` themselves (see `PdfRect`, `PdfMatrix`).
 
 ## Semantics that must not change
 
@@ -127,6 +127,13 @@ are the places where it still differs. Ported code follows these rules everywher
     relative to the fonts folder (read in ordinal order: amsfonts, then cm-super, then lm, which
     keeps the Windows precedence), a way to open each, and a way to open the glyph list. Tests set
     it to the files in `third_party/`.
+
+## Additions
+
+The Android app saves through content URIs, where `DocumentSession.saveAs`'s temporary file and
+rename aren't possible, so `DocumentSession.saveTo(OutputStream)` writes the current snapshot to
+a stream and, once that succeeded, records it as saved. It is the only member PaperKnife for
+Windows doesn't have.
 
 ## Tests
 
