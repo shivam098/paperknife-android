@@ -5,6 +5,8 @@
 # Usage: ci-edit-text.sh <new text> <expected report> <screenshot.png>
 set -euo pipefail
 
+bash "$(dirname "$0")/ci-close-system-dialogs.sh"
+
 dump() {
   adb shell uiautomator dump /sdcard/ui.xml > /dev/null
   adb exec-out cat /sdcard/ui.xml

@@ -414,7 +414,8 @@ private fun EditControls(model: EditorViewModel, compact: Boolean = false) {
             model.editText = it.text
         },
         label = { Text("Selected text") },
-        enabled = model.canEditText,
+        enabled = model.isTextFieldEnabled,
+        readOnly = model.busy,
         singleLine = true,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { model.applyEdit(deleting = false) }),

@@ -8,6 +8,8 @@ set -euo pipefail
 
 package=io.github.shivam098.paperknife
 
+bash "$(dirname "$0")/ci-close-system-dialogs.sh"
+
 dump() {
   adb shell uiautomator dump /sdcard/ui.xml > /dev/null
   adb exec-out cat /sdcard/ui.xml

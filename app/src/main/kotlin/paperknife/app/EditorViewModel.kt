@@ -135,6 +135,13 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     /** Whether the text differs from the selected text, code unit for code unit, as C# compares it. */
     private val isChanged get() = isEditable && editText != selected?.text
     val canEditText get() = isEditable && !busy
+
+    /**
+     * Whether the selected text's field is enabled. While a command runs it stays enabled but
+     * read-only, so it keeps the keyboard focus: disabled, it would pass the focus to the next
+     * control, which the release of the Enter key that applied the edit would then press.
+     */
+    val isTextFieldEnabled get() = isEditable
     val canApply get() = isChanged && !busy
     val canReset get() = isChanged && !busy
     val canDeleteText get() = isEditable && !busy
