@@ -143,14 +143,17 @@ private fun TopBar(model: EditorViewModel) {
             IconButton(onClick = model::openWithPicker, enabled = model.canOpen) {
                 Icon(Icons.Outlined.FolderOpen, contentDescription = "Open")
             }
-            IconButton(onClick = model::saveAsFromMenu, enabled = model.canUseDocument) {
-                Icon(Icons.Outlined.Save, contentDescription = "Save as")
-            }
-            IconButton(onClick = { model.changeHistory(undo = true) }, enabled = model.canUndo) {
-                Icon(Icons.AutoMirrored.Outlined.Undo, contentDescription = "Undo")
-            }
-            IconButton(onClick = { model.changeHistory(undo = false) }, enabled = model.canRedo) {
-                Icon(Icons.AutoMirrored.Outlined.Redo, contentDescription = "Redo")
+            // A phone's top bar has little room: the document's commands appear with a document.
+            if (model.isOpen) {
+                IconButton(onClick = model::saveAsFromMenu, enabled = model.canUseDocument) {
+                    Icon(Icons.Outlined.Save, contentDescription = "Save as")
+                }
+                IconButton(onClick = { model.changeHistory(undo = true) }, enabled = model.canUndo) {
+                    Icon(Icons.AutoMirrored.Outlined.Undo, contentDescription = "Undo")
+                }
+                IconButton(onClick = { model.changeHistory(undo = false) }, enabled = model.canRedo) {
+                    Icon(Icons.AutoMirrored.Outlined.Redo, contentDescription = "Redo")
+                }
             }
             Box {
                 IconButton(onClick = { menuOpen = true }) {
@@ -431,7 +434,7 @@ private fun RunList(model: EditorViewModel, modifier: Modifier, onPick: () -> Un
 
 @Composable
 private fun StatusBar(model: EditorViewModel) {
-    Surface(tonalElevation = 2.dp) {
+    Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.navigationBarsPadding()) {
             if (model.busy) {
                 LinearProgressIndicator(Modifier.fillMaxWidth())
